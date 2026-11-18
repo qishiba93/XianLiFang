@@ -404,6 +404,13 @@ export const Api = {
     return await res.json();
   },
 
+  async getMyWeeklyFoodUsage() {
+    const res = await fetch('/api/carbon/my-food-week', { headers: getHeaders() });
+    await checkAuthStatus(res);
+    if (!res.ok) throw new Error("本周食材用量加载失败");
+    return await res.json();
+  },
+
   async getMyCarbonSummary() {
     const res = await fetch('/api/carbon/my-summary', { headers: getHeaders() });
     await checkAuthStatus(res);

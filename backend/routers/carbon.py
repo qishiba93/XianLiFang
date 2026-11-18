@@ -4,6 +4,7 @@ backend/routers/carbon.py
 核心机制: 每周一 00:00:00 动态自然周无锁重置，精准聚合 Top 20
 """
 from datetime import datetime, timedelta
+from decimal import Decimal
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc
@@ -106,6 +107,53 @@ async def get_weekly_carbon_leaderboard(
         "vegetarian": vegetarian,
         "non_vegetarian": non_vegetarian,
     }
+
+@router.get("/my-food-week")
+async def get_my_weekly_food_usage(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    week_start = get_current_week_start()
+    next_week = week_start + timedelta(days=7)
+    stmt = (
+        select(
+            UserCarbonLog.item_name,
+            UserCarbonLog.item_unit,
+            UserCarbonLog.weight_grams,
+            UserCarbonLog.source_recipe,
+            UserCarbonLog.created_at,
+        )
+        .where(
+            UserCarbonLog.user_id == user.id,
+            UserCarbonLog.created_at >= week_start,
+            UserCarbonLog.created_at < next_week,
+        )
+        .order_by(UserCarbonLog.created_at.desc(), UserCarbonLog.id.desc())
+    )
+
+    foods = {}
+    for name, unit, amount, recipe, created_at in (await db.execute(stmt)).all():
+        name = name.strip()
+        unit = (unit or "").strip() or None
+        food = foods.setdefault((name, unit), {
+            "name": name,
+            "unit": unit,
+            "total_amount": Decimal(0),
+            "entries": [],
+        })
+        food["total_amount"] += Decimal(str(amount))
+        food["entries"].append({
+            "amount": amount,
+            "recipe": recipe,
+            "used_at": created_at.strftime("%m-%d %H:%M"),
+        })
+
+    return {
+        "week_start": week_start.date().isoformat(),
+        "week_end": (next_week - timedelta(days=1)).date().isoformat(),
+        "foods": list(foods.values()),
+    }
+
 
 # 2. 个人减碳成就卡片 (本周 + 历史全周期)
 @router.get("/my-summary")

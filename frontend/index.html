@@ -378,6 +378,16 @@
           </button>
         </header>
 
+        <section aria-labelledby="weeklyFoodHeading" class="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+          <div class="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 id="weeklyFoodHeading" class="text-base font-bold text-slate-900">本周吃了什么</h3>
+            <p id="weeklyFoodDates" class="text-xs text-slate-500"></p>
+          </div>
+          <p class="text-xs text-slate-600">按已确认的食材用量统计，展开食材可查看每笔记录。</p>
+          <p id="weeklyFoodStatus" class="text-sm text-slate-500" role="status"></p>
+          <div id="weeklyFoodList" class="space-y-2"></div>
+        </section>
+
         <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
           <section class="bg-white p-5 rounded-3xl border border-emerald-200 shadow-sm space-y-4">
             <div class="flex justify-between items-center pb-2 border-b border-emerald-100">
@@ -452,7 +462,7 @@
           <h3 class="font-bold text-base text-slate-900 flex items-center gap-1.5">
             <span>🍳</span> 核对在库食材实际消耗量
           </h3>
-          <p class="text-xs text-slate-400 mt-0.5">算法已自动对齐匹配库存并核算减碳</p>
+          <p class="text-xs text-slate-400 mt-0.5">确认实际用量后，库存和本周用量会同步更新</p>
         </div>
         <button onclick="closeModal('batchDeductModal')" class="text-slate-400 hover:text-slate-600 text-xl font-bold">✕</button>
       </div>
@@ -461,8 +471,8 @@
 
       <div class="pt-3 border-t border-slate-100 flex items-center justify-between">
         <span class="text-[11px] text-red-500 font-medium">* 消耗严禁超过当前库存</span>
-        <button onclick="confirmBatchDeduct()" class="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs shadow-lg transition">
-          确认扣减并同步库存
+        <button id="confirmBatchDeductBtn" type="button" onclick="confirmBatchDeduct()" class="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs shadow-lg transition">
+          确认用量并记入账本
         </button>
       </div>
     </div>
@@ -1058,6 +1068,6 @@
     </div>
   </div>
 
-  <script type="module" src="/js/app.js?v=button-fix-20260927"></script>
+  <script type="module" src="/js/app.js?v=weekly-food-ledger"></script>
 </body>
 </html>

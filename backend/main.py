@@ -49,7 +49,7 @@ async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-        def add_carbon_category_column(sync_conn):
+        def add_carbon_ledger_columns(sync_conn):
             columns = {column["name"] for column in inspect(sync_conn).get_columns("user_carbon_logs")}
             if "food_category" not in columns:
                 sync_conn.execute(text(
@@ -57,7 +57,12 @@ async def lifespan(app: FastAPI):
                     "ADD COLUMN food_category VARCHAR(16) NOT NULL DEFAULT 'vegetarian'"
                 ))
 
-        await conn.run_sync(add_carbon_category_column)
+            if "item_unit" not in columns:
+                sync_conn.execute(text(
+                    "ALTER TABLE user_carbon_logs ADD COLUMN item_unit VARCHAR(16)"
+                ))
+
+        await conn.run_sync(add_carbon_ledger_columns)
 
     # 给旧版本账本补齐分类。规则只改分类字段，不触碰已有减碳数值。
     async with AsyncSessionLocal() as session:

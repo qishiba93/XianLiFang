@@ -10,7 +10,7 @@
  * 6. 真实彻底清空 AI 记忆，杜绝上下文泄漏
  * 7. 双菜谱头部标签与按钮精准水平对齐，绝无单字折行
  */
-import { Api } from './api.js?v=button-fix-20260927';
+import { Api } from './api.js?v=weekly-food-ledger';
 
 // ==================== 1. 3D 冰箱与基础门状态 ====================
 let isUpperDoorOpen = false;
@@ -716,7 +716,7 @@ window.switchMainView = async function(view) {
   } else if (view === 'community') {
     await loadCommunityFeed();
   } else if (view === 'carbon') {
-    await loadCarbonLeaderboard();
+    await Promise.all([loadCarbonLeaderboard(), loadWeeklyFoodUsage()]);
   } else if (view === 'chat') {
     const input = document.getElementById("chatUserInput");
     if (input) input.focus();
@@ -2285,6 +2285,8 @@ window.triggerDeductForSpecial = function() {
 };
 
 window.confirmBatchDeduct = async function() {
+  const confirmButton = document.getElementById("confirmBatchDeductBtn");
+  if (confirmButton.disabled) return;
   const deductPayload = [];
   for (let i = 0; i < pendingBatchItems.length; i++) {
     const item = pendingBatchItems[i];
@@ -2299,6 +2301,7 @@ window.confirmBatchDeduct = async function() {
     deductPayload.push({ item_id: item.item_id, deduct_weight: val });
   }
 
+  confirmButton.disabled = true;
   try {
     const res = await Api.batchDeductStock(pendingRecipeName, deductPayload);
     const data = await res.json();
@@ -2315,10 +2318,54 @@ window.confirmBatchDeduct = async function() {
     }
   } catch (err) {
     alert("扣减请求异常");
+  } finally {
+    confirmButton.disabled = false;
   }
 };
 
-// ==================== 13. 减碳周榜 ====================
+// ==================== 13. 减碳周榜与本周食材用量 ====================
+let weeklyFoodRequest = 0;
+async function loadWeeklyFoodUsage() {
+  const list = document.getElementById("weeklyFoodList");
+  const status = document.getElementById("weeklyFoodStatus");
+  const dates = document.getElementById("weeklyFoodDates");
+  const request = ++weeklyFoodRequest;
+  const token = localStorage.getItem("freshplate_token");
+  list.replaceChildren();
+  dates.textContent = "";
+  status.textContent = "正在加载本周食材用量…";
+
+  try {
+    const data = await Api.getMyWeeklyFoodUsage();
+    if (request !== weeklyFoodRequest || token !== localStorage.getItem("freshplate_token")) return;
+    dates.textContent = data.week_start + " 至 " + data.week_end;
+    status.textContent = data.foods.length ? "" : "本周暂无食材用量记录。做完一道菜后，确认实际用量即可记入这里。";
+
+    for (const food of data.foods) {
+      const details = document.createElement("details");
+      details.className = "rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3";
+      const summary = document.createElement("summary");
+      summary.className = "cursor-pointer text-sm font-semibold text-slate-900";
+      const unit = food.unit ? " " + food.unit : "（历史记录未保存单位）";
+      summary.textContent = food.name + " · " + food.total_amount + unit;
+
+      const entries = document.createElement("ul");
+      entries.className = "mt-2 space-y-1 text-xs text-slate-600";
+      for (const entry of food.entries) {
+        const row = document.createElement("li");
+        row.textContent = entry.used_at + " · " + (entry.recipe || "未关联菜谱") + " · " + entry.amount + (food.unit ? " " + food.unit : "");
+        entries.append(row);
+      }
+      details.append(summary, entries);
+      list.append(details);
+    }
+  } catch (err) {
+    if (request === weeklyFoodRequest && token === localStorage.getItem("freshplate_token")) {
+      status.textContent = err.message || "本周食材用量加载失败";
+    }
+  }
+}
+
 window.loadCarbonLeaderboard = async function() {
   const containers = [
     document.getElementById("vegetarianLeaderboardContainer"),

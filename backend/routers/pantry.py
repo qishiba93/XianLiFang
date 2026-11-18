@@ -134,6 +134,7 @@ async def deduct_pantry_item(
         user_id=user.id,
         item_name=item.name,
         weight_grams=req.deduct_weight,
+        item_unit=item.unit,
         carbon_saved_grams=carbon_saved,
         food_category=food_category,
         source_recipe=recipe_name
@@ -171,6 +172,9 @@ async def batch_deduct_pantry_items(
 ):
     if not req.items:
         raise HTTPException(status_code=400, detail="扣减清单为空")
+
+    if len({entry.item_id for entry in req.items}) != len(req.items):
+        raise HTTPException(status_code=400, detail="每个库存批次只能核销一次")
 
     updated_items = []
     deleted_names = []
@@ -222,6 +226,7 @@ async def batch_deduct_pantry_items(
                 user_id=user.id,
                 item_name=item.name,
                 weight_grams=deduct_weight,
+                item_unit=it["unit"],
                 carbon_saved_grams=item_carbon,
                 food_category=food_category,
                 source_recipe=req.recipe_name

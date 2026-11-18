@@ -95,7 +95,8 @@ class UserCarbonLog(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True, comment="归属用户ID")
     item_name = Column(String(64), nullable=False, comment="消耗食材名")
-    weight_grams = Column(Float, nullable=False, comment="消耗克重")
+    weight_grams = Column(Float, nullable=False, comment="核销时的实际用量，单位见 item_unit")
+    item_unit = Column(String(16), nullable=True, comment="核销时的计量单位，历史记录可能为空")
     carbon_saved_grams = Column(Float, nullable=False, comment="减碳贡献克数 (克 CO2e)")
     food_category = Column(
         String(16),
