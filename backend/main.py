@@ -64,6 +64,15 @@ async def lifespan(app: FastAPI):
 
         await conn.run_sync(add_carbon_ledger_columns)
 
+        def add_packaged_food_columns(sync_conn):
+            columns = {column["name"] for column in inspect(sync_conn).get_columns("pantry_items")}
+            if "shelf" not in columns:
+                sync_conn.execute(text("ALTER TABLE pantry_items ADD COLUMN shelf VARCHAR(16)"))
+            if "barcode" not in columns:
+                sync_conn.execute(text("ALTER TABLE pantry_items ADD COLUMN barcode VARCHAR(14)"))
+
+        await conn.run_sync(add_packaged_food_columns)
+
     # 给旧版本账本补齐分类。规则只改分类字段，不触碰已有减碳数值。
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(UserCarbonLog))

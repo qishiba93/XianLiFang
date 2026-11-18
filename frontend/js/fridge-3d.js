@@ -480,9 +480,14 @@ export function createFridge3D({ host, onDoorToggle, onFoodSelect, onUnavailable
     for (const [zone, location] of [['upper', 'refrigeration'], ['lower', 'freezer']]) {
       const zoneItems = items.filter(item => (item.location === 'refrigeration' ? 'refrigeration' : 'freezer') === location);
 
-      zoneItems.slice(0, zone === 'upper' ? 9 : 6).forEach((item, index) => {
-        const row = Math.floor(index / 3);
-        const x = (index % 3 - 1) * 0.61;
+      const shelves = zone === 'upper' ? ['bottom', 'middle', 'top'] : ['bottom', 'top'];
+      const slots = shelves.map(shelf => zoneItems.filter(item => item.shelf === shelf).slice(0, 3));
+      const unassigned = zoneItems.filter(item => !shelves.includes(item.shelf));
+      for (const slot of slots) slot.push(...unassigned.splice(0, 3 - slot.length));
+      const positions = slots.flatMap((slot, row) => slot.map((item, column) => ({ item, row, column })));
+
+      positions.forEach(({ item, row, column }) => {
+        const x = (column - 1) * 0.61;
         const y = (zone === 'upper' ? 2.245 + row * 0.8 : 0.545 + row * 0.7) + 0.24;
         const status = getStatusInfo(item);
 
@@ -840,17 +845,20 @@ export function createFridge3D({ host, onDoorToggle, onFoodSelect, onUnavailable
           tooltip.style.top = `${event.clientY - rect.top}px`;
           tooltip.innerHTML = `
             <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">
-              <strong style="font-size:13px;color:#f8fafc;">${item.name}</strong>
+              <strong style="font-size:13px;color:#f8fafc;"></strong>
               <span style="font-size:9px;padding:2px 6px;border-radius:6px;background:${status.bg};color:#fff;font-weight:bold;">${status.text}</span>
             </div>
             <div style="color:${item.is_expired ? '#f87171' : '#34d399'};font-family:monospace;font-weight:bold;margin-bottom:2px;">
               📅 保质至: ${status.exactDate}
             </div>
             <div style="color:#94a3b8;font-size:10px;">
-              ⏳ 倒计时: <strong style="color:#e2e8f0;">${getExpiryCountdown(item)}</strong> · 剩余: <strong>${item.remaining_weight}${item.unit}</strong>
+              ⏳ 倒计时: <strong style="color:#e2e8f0;">${getExpiryCountdown(item)}</strong> · 剩余: <strong></strong>
             </div>
             ${isDoorClosed ? '<div style="color:#38bdf8;font-size:9px;margin-top:3px;border-top:1px solid rgba(255,255,255,0.1);padding-top:2px;">👉 点击玻璃将自动开启冰箱门</div>' : ''}
           `;
+          const [nameText, , amountText] = tooltip.querySelectorAll('strong');
+          nameText.textContent = item.shelf_label ? `${item.name} · ${item.shelf_label}` : item.name;
+          amountText.textContent = `${item.remaining_weight}${item.unit}`;
           return;
         }
         obj = obj.parent;

@@ -195,6 +195,18 @@ export const Api = {
     return res;
   },
 
+  async recognizePackage(formData) {
+    const headers = getHeaders();
+    delete headers['Content-Type'];
+    const res = await fetch('/api/pantry/recognize-package', {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+    await checkAuthStatus(res);
+    return res;
+  },
+
   async deductStock(itemId, deductWeight, recipeName = "日常料理") {
     const res = await fetch(`/api/pantry/items/${itemId}/deduct`, {
       method: 'POST',

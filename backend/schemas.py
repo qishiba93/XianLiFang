@@ -3,8 +3,11 @@ backend/schemas.py
 Pydantic 数据验证模型规范
 覆盖: 用户鉴权、自主身体状况、全省份菜系过滤、烹饪方式、烹饪耗时(需求5)、标准图库、食材核减、减碳核销、社区风控与菜谱溯源
 """
-from typing import List, Optional, Any, Dict
-from pydantic import BaseModel, Field
+from datetime import date
+from typing import List, Optional, Any, Dict, Literal
+from pydantic import BaseModel, Field, model_validator
+
+from backend.services.packaged_food import SHELF_LABELS, calculate_expiry, normalize_barcode
 
 class UserRegisterLogin(BaseModel):
     """用户公开注册与登录参数"""
@@ -78,8 +81,39 @@ class PantryItemCreate(BaseModel):
     initial_weight: float = Field(..., gt=0, description="初始称重克重")
     remaining_weight: Optional[float] = Field(None, description="当前剩余克重 (默认等于初始克重)")
     unit: str = Field("克", max_length=16, description="计量单位")
-    shelf_life_days: float = Field(..., gt=0, description="保质期天数")
+    shelf_life_days: Optional[float] = Field(None, gt=0, allow_inf_nan=False, description="从入库时起的保质期天数")
     image_url: Optional[str] = Field(None, description="实拍图片路径 (未匹配到标准图库时使用)")
+    shelf: Optional[Literal["top", "middle", "bottom"]] = None
+    barcode: Optional[str] = Field(None, max_length=24)
+    production_date: Optional[date] = None
+    package_expiry_date: Optional[date] = None
+    package_shelf_life: Optional[int] = Field(None, ge=1)
+    package_shelf_life_unit: Optional[Literal["days", "months", "years"]] = None
+
+    @model_validator(mode="after")
+    def validate_storage_and_expiry(self):
+        if self.shelf is not None and self.shelf not in SHELF_LABELS[self.location]:
+            raise ValueError("所选温区没有这一层")
+        if self.barcode:
+            self.barcode = normalize_barcode(self.barcode)
+        if self.production_date and self.production_date > date.today():
+            raise ValueError("生产日期不能晚于今天")
+
+        if self.package_expiry_date is None:
+            if self.production_date and self.package_shelf_life and self.package_shelf_life_unit:
+                try:
+                    self.package_expiry_date = calculate_expiry(
+                        self.production_date, self.package_shelf_life, self.package_shelf_life_unit,
+                    )
+                except (OverflowError, ValueError) as exc:
+                    raise ValueError("保质期超出日期范围") from exc
+            elif self.barcode or self.production_date or self.package_shelf_life or self.package_shelf_life_unit:
+                raise ValueError("请提供包装到期日期，或填写生产日期和保质期")
+            elif self.shelf_life_days is None:
+                raise ValueError("请填写保质天数")
+        if self.production_date and self.package_expiry_date and self.package_expiry_date < self.production_date:
+            raise ValueError("到期日不能早于生产日期")
+        return self
 
 class DeductWeightRequest(BaseModel):
     """单项食材消耗扣减"""

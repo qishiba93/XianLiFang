@@ -10,7 +10,7 @@
  * 6. 真实彻底清空 AI 记忆，杜绝上下文泄漏
  * 7. 双菜谱头部标签与按钮精准水平对齐，绝无单字折行
  */
-import { Api } from './api.js?v=weekly-food-ledger';
+import { Api } from './api.js?v=packaged-food';
 
 // ==================== 1. 3D 冰箱与基础门状态 ====================
 let isUpperDoorOpen = false;
@@ -62,7 +62,7 @@ async function initFridge3D() {
     button.title = button.textContent.trim();
   });
   try {
-    const { createFridge3D } = await import('./fridge-3d.js');
+    const { createFridge3D } = await import('./fridge-3d.js?v=packaged-food');
     document.body.classList.add('fridge-3d-ready');
     const sec = document.getElementById('fridge3DSection');
     if (sec) sec.hidden = false;
@@ -1084,8 +1084,9 @@ function createFoodCard(item) {
   // 严格增加 overflow-hidden 保护与弹性自适应内高，杜绝底边字样下漏
   article.className = `cursor-pointer relative flex flex-col justify-between p-3 rounded-2xl transition-all duration-200 hover:scale-[1.02] shadow-sm min-h-[155px] overflow-hidden ${glowClass}`;
 
+  const safeName = escapeMiniAiText(item.name);
   const imgHtml = item.image_url
-    ? `<img src="${item.image_url}" alt="${item.name}" class="w-10 h-10 rounded-lg object-cover border border-slate-200 shadow-inner shrink-0" />`
+    ? `<img src="${escapeMiniAiText(item.image_url)}" alt="${safeName}" class="w-10 h-10 rounded-lg object-cover border border-slate-200 shadow-inner shrink-0" />`
     : `<div class="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center text-lg shrink-0">🥗</div>`;
 
   const dateStr = item.expire_at ? item.expire_at.split(' ')[0] : "--";
@@ -1096,8 +1097,9 @@ function createFoodCard(item) {
         ${imgHtml}
         ${statusBadge}
       </div>
-      <h4 class="font-bold text-sm text-slate-800 mt-2 truncate" title="${item.name}">${item.name}</h4>
-      <p class="text-xs text-slate-500 mt-0.5 truncate">剩余: <strong class="text-emerald-600">${item.remaining_weight} ${item.unit}</strong></p>
+      <h4 class="font-bold text-sm text-slate-800 mt-2 truncate" title="${safeName}">${safeName}</h4>
+      <p class="text-xs text-slate-500 mt-0.5 truncate">剩余: <strong class="text-emerald-600">${item.remaining_weight} ${escapeMiniAiText(item.unit)}</strong></p>
+      ${item.shelf_label ? `<p class="text-xs text-slate-600 mt-1">${escapeMiniAiText(item.shelf_label)}</p>` : ""}
     </div>
     <div class="text-[10px] font-medium pt-1.5 mt-2 border-t border-slate-100 flex justify-between items-center ${item.is_expired ? 'text-red-600 font-bold' : 'text-slate-400'}">
       <span class="truncate w-full block" title="${item.is_expired ? '⚠️ 严禁食用 · 点击丢弃' : '保质至: ' + dateStr}">
@@ -1113,7 +1115,8 @@ function createFoodCard(item) {
 function openFoodDetail(item) {
   currentActiveItem = item;
   document.getElementById("modalFoodTitle").textContent = item.name;
-  document.getElementById("modalFoodLocation").textContent = `位置：${item.location === 'refrigeration' ? '上层 · 果蔬保鲜室' : '下层 · 深冷冷冻室'}`;
+  const location = item.shelf_label || (item.location === 'refrigeration' ? '上层 · 果蔬保鲜室' : '下层 · 深冷冷冻室');
+  document.getElementById("modalFoodLocation").textContent = `位置：${location}`;
   document.getElementById("modalRemainingWeight").textContent = item.remaining_weight;
   document.getElementById("modalWeightUnit").textContent = item.unit;
   document.getElementById("modalExpiryText").textContent = `截止时间：${item.expire_at}`;
@@ -1126,7 +1129,7 @@ function openFoodDetail(item) {
 
   const imgSlot = document.getElementById("modalFoodImgSlot");
   if (item.image_url) {
-    imgSlot.innerHTML = `<img src="${item.image_url}" alt="${item.name}" class="w-full h-full object-cover" />`;
+    imgSlot.innerHTML = `<img src="${escapeMiniAiText(item.image_url)}" alt="${escapeMiniAiText(item.name)}" class="w-full h-full object-cover" />`;
   } else {
     imgSlot.innerHTML = `<span class="text-xs text-slate-400">暂无实图</span>`;
   }
@@ -1245,6 +1248,7 @@ window.recognizePhoto = async function() {
     } else {
       layerSelect.value = "refrigeration";
     }
+    updateFoodShelfOptions();
 
     currentAiShelfRefrig = parseFloat(data.shelf_life_days_refrig || 3.0);
     currentAiShelfFreezer = parseFloat(data.shelf_life_days_freezer || 45.0);
@@ -1262,16 +1266,144 @@ window.recognizePhoto = async function() {
   }
 };
 
+const packageFieldIds = {
+  barcode: "packageBarcode",
+  production_date: "packageProducedOn",
+  package_expiry_date: "packageExpiresOn",
+  package_shelf_life: "packageLifeValue",
+  package_shelf_life_unit: "packageLifeUnit",
+};
+
+function isPackagedEntry() {
+  return document.getElementById("foodEntryMode").value === "packaged";
+}
+
+function updateFoodShelfOptions() {
+  const shelf = document.getElementById("foodShelfSelect");
+  const cold = document.getElementById("foodLayerSelect").value === "refrigeration";
+  const labels = cold
+    ? { top: "冷藏顶层", middle: "冷藏中层", bottom: "冷藏底层" }
+    : { top: "冷冻上层", bottom: "冷冻底层" };
+  const current = shelf.value;
+  shelf.replaceChildren(new Option("请选择层位", ""));
+  for (const [value, label] of Object.entries(labels)) shelf.add(new Option(label, value));
+  if (labels[current]) shelf.value = current;
+}
+
+window.updateFoodEntryMode = function() {
+  const packaged = isPackagedEntry();
+  const packageFields = document.getElementById("packageEntryFields");
+  packageFields.disabled = !packaged;
+  packageFields.classList.toggle("hidden", !packaged);
+  for (const id of ["freshFoodPhoto", "foodImagePreviewBox", "btnRecognize", "freshShelfLifeField"]) {
+    const element = document.getElementById(id);
+    element.classList.toggle("hidden", packaged || (id === "foodImagePreviewBox" && !document.getElementById("fileInput").files.length));
+  }
+  document.getElementById("shelfLifeInput").disabled = packaged;
+  document.getElementById("foodShelfSelect").required = packaged;
+  document.getElementById("foodUnitSelect").value = packaged ? "毫升" : "克";
+  updateFoodShelfOptions();
+  updatePackageExpiryPreview();
+};
+
+function getPackageEntryFields() {
+  const fields = Object.fromEntries(Object.entries(packageFieldIds).map(([name, id]) => [
+    name, document.getElementById(id).value.trim() || null,
+  ]));
+  fields.package_shelf_life = fields.package_shelf_life ? Number(fields.package_shelf_life) : null;
+  if (!fields.package_shelf_life) fields.package_shelf_life_unit = null;
+  return fields;
+}
+
+function packageExpiryDate(fields) {
+  const { package_expiry_date: explicit, production_date: produced, package_shelf_life: length, package_shelf_life_unit: unit } = fields;
+  if (explicit) return !produced || explicit >= produced ? explicit : null;
+  if (!produced || !Number.isSafeInteger(length) || length < 1) return null;
+  const date = new Date(produced + "T00:00:00Z");
+  if (unit === "days") {
+    date.setUTCDate(date.getUTCDate() + length);
+  } else {
+    const day = date.getUTCDate();
+    date.setUTCDate(1);
+    date.setUTCMonth(date.getUTCMonth() + length * (unit === "years" ? 12 : 1));
+    const last = new Date(date);
+    last.setUTCMonth(last.getUTCMonth() + 1, 0);
+    date.setUTCDate(Math.min(day, last.getUTCDate()));
+  }
+  return Number.isFinite(date.getTime()) && date.getUTCFullYear() <= 9999 ? date.toISOString().slice(0, 10) : null;
+}
+
+function updatePackageExpiryPreview() {
+  const expiry = packageExpiryDate(getPackageEntryFields());
+  document.getElementById("packageExpiryPreview").textContent = expiry
+    ? `保质至 ${expiry}`
+    : "请填写包装到期日，或填写生产日期和保质期。";
+}
+
+window.recognizePackageEntry = async function() {
+  const button = document.getElementById("packageRecognizeBtn");
+  const status = document.getElementById("packageRecognitionStatus");
+  const barcode = document.getElementById("packageBarcode").value.trim();
+  const barcodePhoto = document.getElementById("packageBarcodePhoto").files[0];
+  const labelPhoto = document.getElementById("packageLabelPhoto").files[0];
+  if (!barcode && !barcodePhoto && !labelPhoto) {
+    status.textContent = "请输入条码或上传照片。";
+    return;
+  }
+  const body = new FormData();
+  if (barcode) body.set("barcode", barcode);
+  if (barcodePhoto) body.set("barcode_photo", barcodePhoto);
+  if (labelPhoto) body.set("label_photo", labelPhoto);
+  button.disabled = true;
+  status.textContent = "正在识别包装…";
+  const submittedFields = getPackageEntryFields();
+  try {
+    const res = await Api.recognizePackage(body);
+    const data = await res.json();
+    if (!res.ok) throw new Error(parseErrorMessage(data));
+    if (!isPackagedEntry()) return;
+    const currentFields = getPackageEntryFields();
+    for (const [key, id] of Object.entries(packageFieldIds)) {
+      const input = document.getElementById(id);
+      if (data[key] != null && currentFields[key] === submittedFields[key]) input.value = data[key];
+    }
+    if (data.food_name) document.getElementById("foodNameInput").value = data.food_name;
+    const volume = data.quantity?.match(/^\s*(\d+(?:\.\d+)?)\s*(ml|毫升|l|升)\s*$/i);
+    if (volume && !document.getElementById("foodWeightInput").value) {
+      document.getElementById("foodUnitSelect").value = "毫升";
+      document.getElementById("foodWeightInput").value = Number(volume[1]) * (/^(l|升)$/i.test(volume[2]) ? 1000 : 1);
+    }
+    const nameStatus = data.source === "catalog" ? "已按条码找到商品。" : data.food_name ? "已读取包装品名。" : "请按包装手动填写品名。";
+    const codeStatus = !data.barcode && barcodePhoto ? "条码未读出，可手填包装上的数字。" : "";
+    const dateStatus = data.label_unavailable
+      ? "标签识别暂不可用，请手填日期。"
+      : "请核对包装日期，补齐空白后选择存放层位。";
+    status.textContent = nameStatus + codeStatus + dateStatus;
+    updatePackageExpiryPreview();
+  } catch (error) {
+    status.textContent = error.message || "识别暂不可用，可以按包装手动填写。";
+  } finally {
+    button.disabled = false;
+  }
+};
+
 window.submitPantryItem = async function(e) {
   e.preventDefault();
   const name = document.getElementById("foodNameInput").value.trim();
   const rawWeight = parseFloat(document.getElementById("foodWeightInput").value);
   const shelfDays = parseFloat(document.getElementById("shelfLifeInput").value);
 
-  if (!name || isNaN(rawWeight) || isNaN(shelfDays)) return alert("请填写完整食材信息！");
+  const packaged = isPackagedEntry();
+  if (!name || !Number.isFinite(rawWeight) || rawWeight <= 0 || (!packaged && !Number.isFinite(shelfDays))) {
+    return alert("请填写完整食材信息！");
+  }
 
   const weight = Math.round(rawWeight * 100) / 100;
   const layer = document.getElementById("foodLayerSelect").value;
+  const packageFields = packaged ? getPackageEntryFields() : null;
+  if (packaged && !packageExpiryDate(packageFields)) {
+    return alert("请核对生产日期、保质期或包装标注的到期日。");
+  }
 
   const payload = {
     name,
@@ -1279,8 +1411,10 @@ window.submitPantryItem = async function(e) {
     initial_weight: weight,
     remaining_weight: weight,
     unit: document.getElementById("foodUnitSelect").value,
-    shelf_life_days: shelfDays,
-    image_url: window.lastUploadedImgUrl || null
+    shelf: document.getElementById("foodShelfSelect").value || null,
+    shelf_life_days: packaged ? null : shelfDays,
+    image_url: packaged ? null : window.lastUploadedImgUrl || null,
+    ...packageFields,
   };
 
   try {
@@ -1289,8 +1423,9 @@ window.submitPantryItem = async function(e) {
       alert(`🎉 食材「${name}」已成功存入冰箱！`);
       window.closeModal("uploadModal");
       window.clearFoodImage();
-      document.getElementById("foodNameInput").value = "";
-      document.getElementById("foodWeightInput").value = "";
+      document.getElementById("pantryEntryForm").reset();
+      document.getElementById("packageRecognitionStatus").textContent = "可上传照片，也可按包装手填。保存前请核对日期。";
+      window.updateFoodEntryMode();
       await loadPantryItems();
       if (layer === "refrigeration") setUpperDoor(true);
       else setLowerDoor(true);
@@ -2193,7 +2328,7 @@ window.confirmDeductStock = async function() {
   const currentUnit = currentActiveItem.unit || "克";
 
   if (isNaN(used) || used <= 0 || used > currentActiveItem.remaining_weight) {
-    return alert(`请输入合法消耗克重 (不可超库存 ${currentActiveItem.remaining_weight}${currentUnit})！`);
+    return alert(`请输入实际用量 (不可超库存 ${currentActiveItem.remaining_weight}${currentUnit})！`);
   }
 
   const res = await Api.deductStock(currentActiveItem.id, used, "单项消耗");
@@ -2217,14 +2352,22 @@ function isIngredientMatch(pantryName, recipeIngName) {
   return cleanP.includes(cleanR) || cleanR.includes(cleanP);
 }
 
-function parseSuggestedAmount(amountStr, currentRemaining) {
-  if (!amountStr) return Math.min(100, currentRemaining);
-  const match = amountStr.match(/(\d+(\.\d+)?)/);
-  if (match) {
-    const num = parseFloat(match[1]);
-    if (!isNaN(num) && num > 0) return Math.min(num, currentRemaining);
+function parseSuggestedAmount(amount, item) {
+  const match = String(amount ?? "").trim().match(/^(\d+(?:\.\d+)?)\s*(毫升|ml|升|l|千克|公斤|kg|斤|克|g|瓶)?$/i);
+  const units = {
+    "毫升": ["volume", 1], ml: ["volume", 1], "升": ["volume", 1000], l: ["volume", 1000],
+    "克": ["mass", 1], g: ["mass", 1], "千克": ["mass", 1000], "公斤": ["mass", 1000], kg: ["mass", 1000],
+    "斤": ["mass", 500], "瓶": ["bottle", 1],
+  };
+  const actual = units[item.unit];
+  const suggested = units[match?.[2]?.toLowerCase()];
+  if (match && suggested && actual && suggested[0] === actual[0]) {
+    return Math.min(Number(match[1]) * suggested[1] / actual[1], item.remaining_weight);
   }
-  return Math.min(100, currentRemaining);
+  if (item.unit === "克" && !suggested) {
+    return Math.min(match ? Number(match[1]) : 100, item.remaining_weight);
+  }
+  return "";
 }
 
 window.checkAndPromptIngredientsDeduct = async function(recipeName, ingredientsNeeded) {
@@ -2239,13 +2382,13 @@ window.checkAndPromptIngredientsDeduct = async function(recipeName, ingredientsN
     const found = currentPantry.find(p => !p.is_expired && isIngredientMatch(p.name, name));
     if (found && !matched.some(m => m.item_id === found.id)) {
       const rawAmount = typeof ing === 'object' ? ing.amount : "";
-      const suggested = parseSuggestedAmount(rawAmount, found.remaining_weight);
+      const suggested = parseSuggestedAmount(rawAmount, found);
       matched.push({
         item_id: found.id,
         name: found.name,
         remaining_weight: found.remaining_weight,
         unit: found.unit,
-        suggested: Math.round(suggested * 10) / 10
+        suggested
       });
     }
   }
@@ -2257,15 +2400,15 @@ window.checkAndPromptIngredientsDeduct = async function(recipeName, ingredientsN
   listContainer.innerHTML = matched.map((m, idx) => `
     <div class="p-3 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between">
       <div>
-        <h5 class="font-bold text-xs text-slate-800">${m.name}</h5>
-        <span class="text-[11px] text-slate-400">剩余: <strong class="text-emerald-600">${m.remaining_weight} ${m.unit}</strong></span>
+        <h5 class="font-bold text-xs text-slate-800">${escapeMiniAiText(m.name)}</h5>
+        <span class="text-[11px] text-slate-400">剩余: <strong class="text-emerald-600">${m.remaining_weight} ${escapeMiniAiText(m.unit)}</strong></span>
       </div>
       <div class="flex items-center gap-1.5">
         <span class="text-xs text-slate-500 font-medium">消耗:</span>
         <input type="number" step="any" min="0.1" max="${m.remaining_weight}" id="batchDeductInput_${idx}" value="${m.suggested}"
           class="w-20 px-2 py-1 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-800 text-center focus:ring-2 focus:ring-cyan-500 outline-none"
         />
-        <span class="text-xs font-semibold text-slate-600">${m.unit}</span>
+        <span class="text-xs font-semibold text-slate-600">${escapeMiniAiText(m.unit)}</span>
       </div>
     </div>
   `).join('');
@@ -2852,10 +2995,13 @@ window.addEventListener('DOMContentLoaded', async () => {
   const layerSelect = document.getElementById("foodLayerSelect");
   if (layerSelect) {
     layerSelect.addEventListener("change", (e) => {
+      updateFoodShelfOptions();
       const shelfInput = document.getElementById("shelfLifeInput");
-      if (!shelfInput) return;
+      if (!shelfInput || isPackagedEntry()) return;
       shelfInput.value = (e.target.value === "freezer") ? currentAiShelfFreezer : currentAiShelfRefrig;
     });
+    updateFoodShelfOptions();
+    document.getElementById("packageEntryFields").addEventListener("input", updatePackageExpiryPreview);
   }
 
   document.getElementById("chatUserInput")?.addEventListener("keydown", (e) => {

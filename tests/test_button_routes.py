@@ -1,9 +1,11 @@
 import unittest
 from unittest.mock import patch
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
+from io import BytesIO
 from urllib.parse import quote
 
 from httpx import ASGITransport, AsyncClient
+from PIL import Image, ImageDraw
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from backend.auth import create_access_token
@@ -20,6 +22,22 @@ from backend.models import (
     UserCarbonLog,
 )
 from backend.routers.carbon import get_current_week_start
+
+
+def barcode_photo():
+    """Render the EAN-13 test code 5901234123457 as an actual barcode image."""
+    bits = (
+        "101" "0001011" "0100111" "0110011" "0010011" "0111101" "0011101"
+        "01010" "1100110" "1101100" "1000010" "1011100" "1001110" "1000100" "101"
+    )
+    image = Image.new("RGB", ((len(bits) + 24) * 4, 180), "white")
+    draw = ImageDraw.Draw(image)
+    for i, bit in enumerate(bits, start=12):
+        if bit == "1":
+            draw.rectangle((i * 4, 25, i * 4 + 3, 150), fill="black")
+    output = BytesIO()
+    image.save(output, "PNG")
+    return output.getvalue()
 
 
 class ButtonRouteTests(unittest.IsolatedAsyncioTestCase):
@@ -185,6 +203,65 @@ class ButtonRouteTests(unittest.IsolatedAsyncioTestCase):
         async with self.sessions() as db:
             original_batch = await db.get(PantryItem, item_id)
             self.assertEqual(original_batch.remaining_weight, 150)
+
+    async def test_package_photo_recognition_reads_barcode_and_label_separately(self):
+        url = "/api/pantry/recognize-package"
+        fixtures = {"barcode_photo": ("barcode.png", barcode_photo(), "image/png")}
+        self.assertEqual((await self.client.post(url, files=fixtures)).status_code, 401)
+
+        packaged_label = {
+            "food_name": "通用名称", "production_date": "2024-01-31",
+            "shelf_life": 1, "shelf_life_unit": "months",
+        }
+        product = {"name": "测试饮品", "quantity": "500 ml"}
+        with (
+            patch("backend.routers.pantry.lookup_packaged_product", return_value=product) as lookup,
+            patch("backend.routers.pantry.read_packaged_label", return_value=packaged_label),
+        ):
+            response = await self.client.post(url, headers=self.headers["route-owner"], files=fixtures)
+        self.assertEqual(response.status_code, 200, response.text)
+        lookup.assert_awaited_once_with("5901234123457")
+        self.assertEqual(response.json()["food_name"], "测试饮品")
+        self.assertEqual(response.json()["production_date"], "2024-01-31")
+        self.assertEqual(response.json()["package_shelf_life_unit"], "months")
+
+    async def test_package_inventory_expiry_shelf_and_drink_ledger(self):
+        user = self.headers["route-owner"]
+        url = "/api/pantry/items"
+        bottle = {
+            "name": "测试饮品", "initial_weight": 500, "unit": "毫升",
+            "location": "refrigeration", "shelf": "middle", "barcode": "5901234123457",
+            "production_date": "2024-01-31", "package_shelf_life": 1,
+            "package_shelf_life_unit": "months",
+        }
+        unsupported = await self.client.post(url, headers=user, json={**bottle, "location": "freezer"})
+        self.assertEqual(unsupported.status_code, 422)
+        invalid_barcode = await self.client.post(url, headers=user, json={**bottle, "barcode": "5901234123458"})
+        self.assertEqual(invalid_barcode.status_code, 422)
+        invalid_expiry = await self.client.post(url, headers=user, json={**bottle, "package_expiry_date": "2023-02-28"})
+        self.assertEqual(invalid_expiry.status_code, 422)
+        calculated = await self.client.post(url, headers=user, json=bottle)
+        self.assertEqual(calculated.status_code, 200, calculated.text)
+        self.assertEqual(calculated.json()["expire_at"], "2024-02-29T23:59:59")
+
+        expiry = date.today() + timedelta(days=5)
+        response = await self.client.post(url, headers=user, json={**bottle, "package_expiry_date": expiry.isoformat()})
+        self.assertEqual(response.status_code, 200, response.text)
+        product_id = response.json()["id"]
+        used = await self.client.post(f"{url}/{product_id}/deduct", headers=user, json={"deduct_weight": 150})
+        self.assertEqual(used.status_code, 200, used.text)
+        self.assertEqual(used.json()["remaining_weight"], 350)
+        self.assertEqual(used.json()["carbon_saved_grams"], 0)
+
+        rows = (await self.client.get(url, headers=user)).json()
+        item = next(row for row in rows if row["id"] == product_id)
+        self.assertEqual(item["shelf_label"], "冷藏中层")
+        self.assertEqual(item["barcode"], "5901234123457")
+        self.assertTrue(item["expire_at"].startswith(expiry.isoformat()))
+        ledger = (await self.client.get("/api/carbon/my-food-week", headers=user)).json()
+        self.assertEqual(len(ledger["foods"]), 1)
+        self.assertEqual(ledger["foods"][0]["unit"], "毫升")
+        self.assertEqual(float(ledger["foods"][0]["total_amount"]), 150)
 
 
 if __name__ == "__main__":

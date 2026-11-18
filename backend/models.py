@@ -41,6 +41,8 @@ class PantryItem(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True, comment="归属用户ID")
     name = Column(String(64), nullable=False, index=True, comment="食材通用名")
     location = Column(String(32), nullable=False, index=True, comment="存放位置: refrigeration(冷藏) / freezer(冷冻)")
+    shelf = Column(String(16), nullable=True, comment="温区内的层位")
+    barcode = Column(String(14), nullable=True, comment="包装商品条码")
     initial_weight = Column(Float, nullable=False, default=0.0, comment="初始录入克重")
     remaining_weight = Column(Float, nullable=False, default=0.0, comment="当前剩余克重")
     unit = Column(String(16), nullable=False, default="克", comment="计量单位")

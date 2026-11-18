@@ -524,13 +524,20 @@
 
   <!-- 录入食材弹窗 -->
   <div id="uploadModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
-    <div class="bg-white rounded-3xl w-full max-w-md p-6 shadow-2xl overflow-hidden flex flex-col">
+    <div class="bg-white rounded-3xl w-full max-w-md p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
       <div class="flex justify-between items-center pb-3 border-b border-slate-100">
-        <h3 class="text-base font-bold text-slate-900 flex items-center gap-2"><span>📸</span> 录入/拍照生鲜食材</h3>
+        <h3 class="text-base font-bold text-slate-900 flex items-center gap-2"><span>📸</span> 录入食材</h3>
         <button onclick="closeModal('uploadModal')" class="text-slate-400 hover:text-slate-600 text-xl font-bold">✕</button>
       </div>
-      <form onsubmit="submitPantryItem(event)" class="mt-4 flex flex-col gap-3">
+      <form id="pantryEntryForm" onsubmit="submitPantryItem(event)" class="mt-4 flex flex-col gap-3">
         <div>
+          <label for="foodEntryMode" class="block text-xs font-semibold text-slate-600 mb-1">录入类型</label>
+          <select id="foodEntryMode" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs" onchange="updateFoodEntryMode()">
+            <option value="fresh">生鲜食材</option>
+            <option value="packaged">包装饮品</option>
+          </select>
+        </div>
+        <div id="freshFoodPhoto">
           <label class="block text-xs font-semibold text-slate-600 mb-1">食材照片 (支持自动识别)</label>
           <input type="file" id="fileInput" accept="image/*" onchange="handleFoodImageSelect(event)" class="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-3.5 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100">
         </div>
@@ -546,6 +553,49 @@
           <span>🤖</span> <span>开始多模态 AI 智能识别</span>
         </button>
 
+        <fieldset id="packageEntryFields" class="hidden space-y-3 rounded-2xl bg-emerald-50/60 border border-emerald-100 p-3" disabled>
+          <legend class="sr-only">饮品包装信息</legend>
+          <div>
+            <label for="packageBarcode" class="block text-xs font-semibold text-slate-700 mb-1">商品条码</label>
+            <input id="packageBarcode" type="text" inputmode="numeric" maxlength="24" class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs" placeholder="输入数字或上传条码照片">
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label for="packageBarcodePhoto" class="block text-xs font-semibold text-slate-700 mb-1">条码照片</label>
+              <input id="packageBarcodePhoto" type="file" accept="image/jpeg,image/png,image/webp" class="w-full text-xs">
+            </div>
+            <div>
+              <label for="packageLabelPhoto" class="block text-xs font-semibold text-slate-700 mb-1">品名和日期标签照片</label>
+              <input id="packageLabelPhoto" type="file" accept="image/jpeg,image/png,image/webp" class="w-full text-xs">
+            </div>
+          </div>
+          <button type="button" id="packageRecognizeBtn" onclick="recognizePackageEntry()" class="w-full py-2.5 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-60 text-white rounded-xl text-xs font-semibold">识别条码和包装标签</button>
+          <p id="packageRecognitionStatus" role="status" class="text-xs text-slate-700">可上传照片，也可按包装手填。保存前请核对日期。</p>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label for="packageProducedOn" class="block text-xs font-medium text-slate-700 mb-1">生产日期</label>
+              <input id="packageProducedOn" type="date" class="w-full px-2 py-2 bg-white border border-slate-200 rounded-xl text-xs">
+            </div>
+            <div>
+              <label for="packageExpiresOn" class="block text-xs font-medium text-slate-700 mb-1">包装标注到期日</label>
+              <input id="packageExpiresOn" type="date" class="w-full px-2 py-2 bg-white border border-slate-200 rounded-xl text-xs">
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label for="packageLifeValue" class="block text-xs font-medium text-slate-700 mb-1">包装标注保质期</label>
+              <input id="packageLifeValue" type="number" min="1" step="1" class="w-full px-2 py-2 bg-white border border-slate-200 rounded-xl text-xs">
+            </div>
+            <div>
+              <label for="packageLifeUnit" class="block text-xs font-medium text-slate-700 mb-1">保质期单位</label>
+              <select id="packageLifeUnit" class="w-full px-2 py-2 bg-white border border-slate-200 rounded-xl text-xs">
+                <option value="days">天</option><option value="months">月</option><option value="years">年</option>
+              </select>
+            </div>
+          </div>
+          <p id="packageExpiryPreview" class="text-xs font-semibold text-emerald-900" role="status"></p>
+        </fieldset>
+
         <div class="space-y-3 pt-2 border-t border-slate-100">
           <div>
             <label class="block text-xs font-medium text-slate-600 mb-1">食材通用名称</label>
@@ -559,14 +609,20 @@
                 <option value="freezer">下层 · 深冷速冻室</option>
               </select>
             </div>
-            <div>
+            <div id="freshShelfLifeField">
               <label class="block text-xs font-medium text-slate-600 mb-1">保质天数 (天)</label>
               <input type="number" step="any" min="0.0001" id="shelfLifeInput" required value="3.0" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs">
+            </div>
+            <div>
+              <label for="foodShelfSelect" class="block text-xs font-medium text-slate-600 mb-1">具体层位</label>
+              <select id="foodShelfSelect" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs">
+                <option value="">请选择层位</option>
+              </select>
             </div>
           </div>
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="block text-xs font-medium text-slate-600 mb-1">称重重量</label>
+              <label for="foodWeightInput" class="block text-xs font-medium text-slate-600 mb-1">入库数量</label>
               <input type="number" id="foodWeightInput" required step="any" min="0.0001" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs">
             </div>
             <div>
@@ -574,6 +630,8 @@
               <select id="foodUnitSelect" class="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold">
                 <option value="克">克 (g)</option>
                 <option value="斤">斤</option>
+                <option value="毫升">毫升 (mL)</option>
+                <option value="瓶">瓶</option>
               </select>
             </div>
           </div>
@@ -1068,6 +1126,6 @@
     </div>
   </div>
 
-  <script type="module" src="/js/app.js?v=weekly-food-ledger"></script>
+  <script type="module" src="/js/app.js?v=packaged-food"></script>
 </body>
 </html>
