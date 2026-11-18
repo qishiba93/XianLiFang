@@ -221,7 +221,7 @@ async def list_post_comments(
     post_stmt = select(CommunityPost).where(CommunityPost.id == post_id)
     post = (await db.execute(post_stmt)).scalar_one_or_none()
     is_post_owner = (post and post.user_id == user.id)
-    is_admin = (user.role in ["admin", "super_admin"] or user.id == 1 or user.username == "admin")
+    is_admin = user.role in ("admin", "super_admin")
 
     stmt = (
         select(PostComment, User.username)
@@ -262,7 +262,7 @@ async def delete_post_comment(
 
     is_post_owner = (post and post.user_id == user.id)
     is_comment_owner = (c.user_id == user.id)
-    is_admin = (user.role in ["admin", "super_admin"] or user.id == 1 or user.username == "admin")
+    is_admin = user.role in ("admin", "super_admin")
 
     if not (is_post_owner or is_comment_owner or is_admin):
         raise HTTPException(status_code=403, detail="无权删除该评论，仅作者本人或发帖者可删除")
@@ -323,7 +323,7 @@ async def delete_community_post(
     if not post:
         raise HTTPException(status_code=404, detail="动态不存在")
 
-    is_admin = (user.role in ["admin", "super_admin"] or user.id == 1 or user.username == "admin")
+    is_admin = user.role in ("admin", "super_admin")
     if post.user_id != user.id and not is_admin:
         raise HTTPException(status_code=403, detail="无权删除他人的美食动态")
 

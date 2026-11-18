@@ -3,6 +3,7 @@ backend/routers/auth_router.py
 用户认证、分级运维与全员综合活跃热力大屏中台接口
 包含：核心KPI聚合、三餐时段洞察、GitHub风格贡献墙、7x24H交叉打卡矩阵、日期穿透下钻流水
 """
+import os
 import traceback
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -24,12 +25,18 @@ from backend.auth import (
 router = APIRouter(prefix="/api/auth", tags=["用户认证与管理"])
 
 def check_is_super(u: User) -> bool:
-    return u.id == 1 or u.username == "admin" or u.role == "super_admin"
+    return u.role == "super_admin"
 
 # 1. 普通用户公开注册接口 (硬性规定：只能注册普通用户)
 @router.post("/register")
 async def register(req: UserRegisterLogin, db: AsyncSession = Depends(get_db)):
     clean_username = req.username.strip()
+    reserved_names = {"admin", os.getenv("BOOTSTRAP_ADMIN_USERNAME", "").strip().casefold()}
+    if clean_username.casefold() in reserved_names:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="该账号名称保留给系统管理员，请使用其他名称",
+        )
 
     stmt = select(User).where(User.username == clean_username)
     existing = (await db.execute(stmt)).scalar_one_or_none()

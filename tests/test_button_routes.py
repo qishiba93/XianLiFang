@@ -58,7 +58,7 @@ class ButtonRouteTests(unittest.IsolatedAsyncioTestCase):
             admin = User(username="route-admin", hashed_password="unused", role="super_admin")
             owner = User(username="route-owner", hashed_password="unused", role="user")
             other = User(username="route-other", hashed_password="unused", role="user")
-            db.add_all([admin, owner, other])
+            db.add_all([owner, admin, other])
             await db.flush()
             self.headers = {
                 user.username: {"X-FreshFood-Token": create_access_token({"sub": user.username})}
@@ -135,6 +135,17 @@ class ButtonRouteTests(unittest.IsolatedAsyncioTestCase):
         image_url = f"/api/admin/food-images/{self.ids['image']}/delete"
         self.assertEqual((await self.client.post(image_url, headers=owner)).status_code, 403)
         self.assertEqual((await self.client.post(image_url, headers=admin)).status_code, 200)
+
+    async def test_admin_permissions_require_assigned_role(self):
+        first_user = self.headers["route-owner"]
+        actual_admin = self.headers["route-admin"]
+        me = await self.client.get("/api/auth/me", headers=first_user)
+        self.assertEqual(me.json()["id"], 1)
+        self.assertEqual(me.json()["role"], "user")
+        self.assertEqual((await self.client.get("/api/auth/admin/users", headers=first_user)).status_code, 403)
+        self.assertEqual((await self.client.get("/api/auth/admin/users", headers=actual_admin)).status_code, 200)
+        reserved = await self.client.post("/api/auth/register", json={"username": "Admin", "password": "local-placeholder"})
+        self.assertEqual(reserved.status_code, 400)
 
 
     async def test_weekly_food_usage_uses_actual_quantities_and_keeps_units_separate(self):

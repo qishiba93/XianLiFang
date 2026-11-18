@@ -74,14 +74,13 @@ async def get_current_user(
 async def get_current_admin_user(current_user: User = Depends(get_current_user)) -> User:
     """一般管理员与超级管理员均可通过"""
     role = getattr(current_user, "role", "user") or "user"
-    # id=1 或 admin 账号自动视作拥有管理员级别
-    if role not in ["admin", "super_admin"] and current_user.id != 1 and current_user.username != "admin":
+    if role not in ("admin", "super_admin"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问：此功能仅限管理员")
     return current_user
 
 async def get_current_super_admin(current_user: User = Depends(get_current_user)) -> User:
     """仅超级管理员可通过 (用于创建新管理员)"""
     role = getattr(current_user, "role", "user") or "user"
-    if role != "super_admin" and current_user.id != 1 and current_user.username != "admin":
+    if role != "super_admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="权限不足：只有超级管理员可执行该操作")
     return current_user
